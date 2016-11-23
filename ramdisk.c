@@ -8,6 +8,7 @@
 #include <fuse.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <libgen.h>
 
 #define DEBUG 1
 
@@ -15,6 +16,7 @@ typedef struct item{
 	struct stat *details;
 	struct item *sibling;
 	struct item *subDir;
+	struct item *supDir;
 	char *name;
 	char *location;
 	int isFile;
@@ -41,6 +43,35 @@ static int fs_open(const char *path, struct fuse_file_info *fi);
 static int fs_read(const char *path, char *buf, size_t size, off_t offset,struct fuse_file_info *fi);
 static int fs_write(const char *path, const char *buf, size_t size,off_t offset, struct fuse_file_info *fi);
 static int fs_create(const char *path , mode_t mode, struct fuse_file_info *fi);
+
+item* getParent(item *temp, char *path){
+	if (strcmp(temp->location,path)==0)
+	{
+		return temp;
+	}
+	else if (temp->subDir!=NULL)
+	{
+		getParent(temp->subDir,path);
+	}
+	else if (temp->sibling!=NULL)
+	{
+		getParent(temp->sibling,path);
+	}
+	else
+	{
+		while(temp->sibling==NULL)
+		{
+			temp=temp->supDir;
+			if (temp==NULL)
+			{
+				printf("Cannot find the path requested\n");
+				return NULL;
+			}
+		}
+		getParent(temp->sibling,path);
+	}
+	return NULL;
+}
 
 static int fs_getattr(const char *path, struct stat *stbuf){
 	stbuf->st_uid=getuid();
@@ -71,15 +102,56 @@ static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,off_t 
 }
 
 static int fs_mkdir(const char *path, mode_t mode){
+	if ((fsinfo->freeBytes- sizeof(item) - sizeof(stat)) < 0)
+	{//no space
+		return -ENOSPC;
+	}
+	char *temp1, *temp2, *dirName;
+	temp1=strdup(path);
+	temp2=strdup(path);
+	dirName=dirname(temp2);
+	item *parentNode;
 #if DEBUG
 	printf("Path: %s\n", path);
 #endif
-	/*item newNode = (item *)malloc(sizeof(item));
+
+	item *newNode = (item *)malloc(sizeof(item));
+	newNode->details=(struct stat *)malloc(sizeof(stat));
+
 	newNode->sibling=NULL;
 	newNode->subDir=NULL;
 	newNode->isFile=0;
-	newNode->path=strndup(path,strlen(path));*/
 
+	strcpy(newNode->name,basename(temp1));
+	strcpy(newNode->location,dirName);
+
+	newNode->details->st_mode = mode;
+	newNode->details->st_nlink = 2;
+	newNode->details->st_uid=getuid();
+	newNode->details->st_gid=getgid();
+
+	parentNode=getParent(head,dirName);
+	newNode->supDir=parentNode;
+	parentNode->details->st_nlink+=1;
+
+	if (parentNode->subDir==NULL)
+	{
+		parentNode->subDir=newNode;
+	}
+	else
+	{
+		parentNode=parentNode->subDir;
+		while(parentNode->sibling!=NULL)
+			parentNode=parentNode->sibling;
+
+		parentNode->sibling=newNode;
+	}
+
+	fsinfo->freeBytes = fsinfo->totalSize - sizeof(item) - sizeof(stat);
+	if (fsinfo->freeBytes < 0)
+	{//no space
+		return -ENOSPC;
+	}
 	return 0;
 }
 
@@ -114,11 +186,12 @@ static int initFuse(char *mountpoint){
 
 	rootNode->sibling=NULL;
 	rootNode->subDir=NULL;
+	rootNode->supDir=NULL;
 	rootNode->isFile=0;
 	rootNode->name = strndup(mountpoint,strlen(mountpoint));
-	rootNode->location=strndup("/",1);
+	rootNode->location = strndup(mountpoint,strlen(mountpoint));
 	//strcpy(rootNode->location, "/");
-	strcat(rootNode->location,mountpoint);
+	//strcat(rootNode->location,mountpoint);
 #if DEBUG
 	printf("Mountpoint: %s\n", rootNode->location);
 #endif
@@ -161,7 +234,7 @@ int main(int argc, char *argv[]){
 	fsinfo->NumberOfDir=0;
 	fsinfo->NumberOfFiles=0;
 	fsinfo->mountpoint=strndup(argv[1],strlen(argv[1]));
-
+	
 #if DEBUG
 	printf("Mountpoint: %s\n", fsinfo->mountpoint);
 #endif
