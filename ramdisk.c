@@ -44,21 +44,39 @@ static int fs_read(const char *path, char *buf, size_t size, off_t offset,struct
 static int fs_write(const char *path, const char *buf, size_t size,off_t offset, struct fuse_file_info *fi);
 static int fs_create(const char *path , mode_t mode, struct fuse_file_info *fi);
 
-item* getParent(item *temp, char *path){
-	if (strcmp(temp->location,path)==0)
+void Display()
+{
+	item *temp=head;
+	fprintf(stdout, "%s\n", temp->name);
+	temp=temp->subDir;
+	while(temp!=NULL)
 	{
+		fprintf(stdout, "%s\n", temp->name);
+		temp=temp->sibling;
+	}
+}
+
+item* getParent(item *temp, char *path){
+	fprintf(stdout, "in getParent for path: %s with temp: %s\n Node structure: ", path,temp->name);
+	Display();
+	if (temp==NULL)
+	{fprintf(stdout, "in null of getParent\n");
+		return NULL;
+	}
+	if (strcmp(temp->location,path)==0)
+	{fprintf(stdout, "in strcmp of getParent: %s, %s\n",temp->name, temp->location);
 		return temp;
 	}
 	else if (temp->subDir!=NULL)
-	{
+	{fprintf(stdout, "in child of getParent\n");
 		getParent(temp->subDir,path);
 	}
 	else if (temp->sibling!=NULL)
-	{
+	{fprintf(stdout, "in sibling of getParent\n");
 		getParent(temp->sibling,path);
 	}
 	else
-	{
+	{fprintf(stdout, "in finding parent with not null of getParent\n");
 		while(temp->sibling==NULL)
 		{
 			temp=temp->supDir;
@@ -70,10 +88,12 @@ item* getParent(item *temp, char *path){
 		}
 		getParent(temp->sibling,path);
 	}
-	return NULL;
 }
 
 static int fs_getattr(const char *path, struct stat *stbuf){
+	fprintf(stdout, "getattr path: %s\n", path);
+	char *p;
+	p=strdup(path);
 	stbuf->st_uid=getuid();
 	stbuf->st_gid=getgid();
 	stbuf->st_atime=time(NULL);
@@ -86,10 +106,31 @@ static int fs_getattr(const char *path, struct stat *stbuf){
 	}
 	else
 	{
-		stbuf->st_mode= S_IFREG | 0644;
-		stbuf->st_nlink=1;
-		stbuf->st_size=1024;
+		fprintf(stdout, "in else of getattr\n");
+		item *node=getParent(head,p);
+		//fprintf(stdout, "Parent in getattr: %s\n", node->name);
+		if (node!=NULL)
+		{
+			if (node->isFile==1)
+			{fprintf(stdout, "is File\n");
+				stbuf->st_mode= S_IFREG | 0755;
+				stbuf->st_nlink=1;
+			}
+			else
+			{fprintf(stdout, "is Dir\n");
+				stbuf->st_mode= S_IFDIR | 0755;
+				stbuf->st_nlink=2;
+			}
+			stbuf->st_size=1024;
+		}
+		else
+		{fprintf(stdout, "Parent is null of getattr\n");
+			return -ENOENT;
+		}
 	}
+	fprintf(stdout, "exiting getattr\n");
+	Display();
+	//free(p);
 	return 0;
 }
 
@@ -98,7 +139,40 @@ static int fs_opendir(const char *path, struct fuse_file_info *fi){
 }
 
 static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,off_t offset, struct fuse_file_info *fi){
+	filler( buf, ".", NULL, 0 ); 
+	filler( buf, "..", NULL, 0 );
+	item *nodePrint;
+	char *p=strdup(path), *file_name;
+	if (path==NULL)
+	{fprintf(stdout, "in path null of readdir\n");
+		return -EPERM;
+	}
+
+	fprintf(stdout, "in readdir and Node struct\n");
+	Display();
+	nodePrint=getParent(head, p);
+	fprintf(stdout, "after getting parent in readdir: %s\n", nodePrint->name);
+	if (nodePrint==NULL)
+	{
+		return -ENOENT;
+	}
+	item *temp=nodePrint->subDir;
+	while(temp!=NULL)
+	{fprintf(stdout, "temp is not null goes into while of readdir\n");
+fprintf(stdout, "Path parent: %s\n", temp->name);
+		file_name=strndup(temp->name,strlen(temp->name));
+		fprintf(stdout, "Name: %s\n", file_name);
+		filler(buf, file_name, NULL, 0);
+		fprintf(stdout, "Name after filler: %s\n", file_name);
+		//free(file_name);
+		temp=temp->sibling;
+	}
+	fprintf(stdout, "temp is null now of readdir and Node struct\n");
+	Display();
+	//free(p);
+	fprintf(stdout, "after free in readdir\n");
 	return 0;
+
 }
 
 static int fs_mkdir(const char *path, mode_t mode){
@@ -106,40 +180,46 @@ static int fs_mkdir(const char *path, mode_t mode){
 	{//no space
 		return -ENOSPC;
 	}
-	char *temp1, *temp2, *dirName;
-	temp1=strdup(path);
-	temp2=strdup(path);
+	printf("in mkdir\n");
+	char temp1[1024], temp2[1024], *dirName, *Dir;
+	strcpy(temp1,path);
+	strcpy(temp2,path);
+	Dir=basename(temp1);
 	dirName=dirname(temp2);
+
 	item *parentNode;
-#if DEBUG
-	printf("Path: %s\n", path);
-#endif
 
 	item *newNode = (item *)malloc(sizeof(item));
-	newNode->details=(struct stat *)malloc(sizeof(stat));
+	newNode->details=(struct stat *)malloc(sizeof(struct stat));
 
 	newNode->sibling=NULL;
 	newNode->subDir=NULL;
 	newNode->isFile=0;
-
-	strcpy(newNode->name,basename(temp1));
-	strcpy(newNode->location,dirName);
 
 	newNode->details->st_mode = mode;
 	newNode->details->st_nlink = 2;
 	newNode->details->st_uid=getuid();
 	newNode->details->st_gid=getgid();
 
+	newNode->name=strndup(Dir,strlen(Dir));
+	newNode->location=strndup(temp1,strlen(temp1));
+
 	parentNode=getParent(head,dirName);
+	fprintf(stdout, "Parent in mkdir: %s\n", parentNode->name);
+	if (parentNode==NULL)
+	{
+		printf("Parent Node does not exist\n");
+		exit(EXIT_FAILURE);
+	}
 	newNode->supDir=parentNode;
 	parentNode->details->st_nlink+=1;
 
 	if (parentNode->subDir==NULL)
-	{
+	{fprintf(stdout, "first child\n");
 		parentNode->subDir=newNode;
 	}
 	else
-	{
+	{fprintf(stdout, "traversing node\n");
 		parentNode=parentNode->subDir;
 		while(parentNode->sibling!=NULL)
 			parentNode=parentNode->sibling;
@@ -168,7 +248,7 @@ static int fs_open(const char *path, struct fuse_file_info *fi){
 }
 
 static int fs_read(const char *path, char *buf, size_t size, off_t offset,struct fuse_file_info *fi){
-	return 0;
+	return size;
 }
 
 static int fs_write(const char *path, const char *buf, size_t size,off_t offset, struct fuse_file_info *fi){
@@ -179,8 +259,7 @@ static int fs_create(const char *path , mode_t mode, struct fuse_file_info *fi){
 	return 0;
 }
 
-static int initFuse(char *mountpoint){
-
+static int initFuse(char *argv[]){
 	item *rootNode=(item *)malloc(sizeof(item));
 	rootNode->details=(struct stat *)malloc(sizeof(stat));
 
@@ -188,24 +267,25 @@ static int initFuse(char *mountpoint){
 	rootNode->subDir=NULL;
 	rootNode->supDir=NULL;
 	rootNode->isFile=0;
-	rootNode->name = strndup(mountpoint,strlen(mountpoint));
-	rootNode->location = strndup(mountpoint,strlen(mountpoint));
-	//strcpy(rootNode->location, "/");
-	//strcat(rootNode->location,mountpoint);
+	rootNode->location = strdup("/");
+fprintf(stdout, "Root name: %s\n", rootNode->name);
 #if DEBUG
-	printf("Mountpoint: %s\n", rootNode->location);
+	printf("Mountpoint of init: %s\n", rootNode->location);
 #endif
+
 	rootNode->details->st_mode = S_IFDIR | 0755;
 	rootNode->details->st_nlink = 2;
 	rootNode->details->st_uid=0;
 	rootNode->details->st_gid=0;
-
+	rootNode->location = strdup("/");
+	rootNode->name = strndup(argv[1],strlen(argv[1]));
 	fsinfo->freeBytes = fsinfo->totalSize - sizeof(item) - sizeof(stat);
 	if (fsinfo->freeBytes < 0)
 	{//no space
 		return -ENOSPC;
 	}
 	head=rootNode;
+	fprintf(stdout, "head: %s, %s\n", head->name, head->location);
 	return 0;
 }
 
@@ -226,7 +306,7 @@ int main(int argc, char *argv[]){
 	if (argc!=3)
 	{
 		printf("USAGE ERROR: ./ramdisk <mount point> <size>\n");
-		exit(EXIT_FAILURE);
+		//exit(EXIT_FAILURE);
 	}
 	fsinfo = (FSInfo *)malloc(sizeof(FSInfo));
 	fsinfo->totalSize=((long)atoi(argv[2])) * 1024 * 1024;
@@ -235,10 +315,10 @@ int main(int argc, char *argv[]){
 	fsinfo->NumberOfFiles=0;
 	fsinfo->mountpoint=strndup(argv[1],strlen(argv[1]));
 	
+	initFuse(argv);
 #if DEBUG
 	printf("Mountpoint: %s\n", fsinfo->mountpoint);
 #endif
-	initFuse(argv[1]);
 	argc--;
 	return fuse_main(argc, argv, &fuseOps, NULL);
 }
