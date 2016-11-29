@@ -19,6 +19,7 @@ typedef struct item{
 	struct item *supDir;
 	char *name;
 	char *location;
+	char *data;
 	int isFile;
 }item;
 
@@ -43,6 +44,9 @@ static int fs_open(const char *path, struct fuse_file_info *fi);
 static int fs_read(const char *path, char *buf, size_t size, off_t offset,struct fuse_file_info *fi);
 static int fs_write(const char *path, const char *buf, size_t size,off_t offset, struct fuse_file_info *fi);
 static int fs_create(const char *path , mode_t mode, struct fuse_file_info *fi);
+static int fs_utimens(const char * path, const struct timespec tv[2]);
+static int fs_chmod(const char *path, mode_t mode);
+static int fs_chown(const char *path, uid_t uid, gid_t gid);
 
 void Display()
 {
@@ -121,7 +125,7 @@ static int fs_getattr(const char *path, struct stat *stbuf){
 				stbuf->st_mode= S_IFDIR | 0755;
 				stbuf->st_nlink=2;
 			}
-			stbuf->st_size=1024;
+			stbuf->st_size=node->details->st_size;
 		}
 		else
 		{fprintf(stdout, "Parent is null of getattr\n");
@@ -194,6 +198,7 @@ static int fs_mkdir(const char *path, mode_t mode){
 
 	newNode->sibling=NULL;
 	newNode->subDir=NULL;
+	newNode->data=NULL;
 	newNode->isFile=0;
 
 	newNode->details->st_mode = mode;
@@ -227,7 +232,7 @@ static int fs_mkdir(const char *path, mode_t mode){
 		parentNode->sibling=newNode;
 	}
 
-	fsinfo->freeBytes = fsinfo->totalSize - sizeof(item) - sizeof(stat);
+	fsinfo->freeBytes = fsinfo->freeBytes - sizeof(item) - sizeof(stat);
 	if (fsinfo->freeBytes < 0)
 	{//no space
 		return -ENOSPC;
@@ -236,26 +241,257 @@ static int fs_mkdir(const char *path, mode_t mode){
 }
 
 static int fs_unlink(const char *path){
+	fprintf(stdout, "in unlink with path: %s\n", path);
+	if (path==NULL || strcmp(path,"/")==0)
+	{
+		return -EPERM;
+	}
+	item *node, *parNode, *temp, *prev;
+	char *p=strdup(path);
+	node=getParent(head,p);
+	parNode=node->supDir;
+	temp=parNode->subDir;
+	if (strcmp(temp->name,node->name)==0)
+	{
+		if (node->sibling==NULL)
+		{
+			parNode->subDir=NULL;
+		}
+		else
+		{
+			parNode->subDir=node->sibling;
+		}
+	}
+	else
+	{
+		prev=temp;
+		while(strcmp(temp->name,node->name)!=0)
+		{
+			prev=temp;
+			temp=temp->sibling;
+		}
+		prev->sibling=node->sibling;
+	}
+	long int dataSize;
+	if (node->data!=NULL)
+	{
+		dataSize=strlen(node->data);
+	}
+	fsinfo->freeBytes=fsinfo->freeBytes + sizeof(item) + sizeof(stat) + dataSize;
+	free(node->name);
+	free(node->location);
+	free(node->details);
+	free(node);
 	return 0;
 }
 
 static int fs_rmdir(const char *path){
+	fprintf(stdout, "in rmdir with path: %s\n", path);
+	if (path==NULL || strcmp(path,"/")==0)
+	{
+		return -EPERM;
+	}
+	item *node, *parNode, *temp, *prev;
+	char *p=strdup(path);
+	node=getParent(head,p);
+	fprintf(stdout, "in rmdir after getParent: %s\n", node->name);
+	if (node->subDir!=NULL)
+	{
+		return -ENOTEMPTY;
+	}
+	parNode=node->supDir;
+	temp=parNode->subDir;
+	if (strcmp(temp->name,node->name)==0)
+	{
+		if (node->sibling==NULL)
+		{
+			parNode->subDir=NULL;
+		}
+		else
+		{
+			parNode->subDir=node->sibling;
+		}
+	}
+	else
+	{
+		prev=temp;
+		while(strcmp(temp->name,node->name)!=0)
+		{
+			prev=temp;
+			temp=temp->sibling;
+		}
+		prev->sibling=node->sibling;
+	}
+	fsinfo->freeBytes=fsinfo->freeBytes + sizeof(item) + sizeof(stat);
+	free(node->name);
+	free(node->location);
+	free(node->details);
+	free(node);
+	Display();
 	return 0;
 }
 
 static int fs_open(const char *path, struct fuse_file_info *fi){
-	return 0;
+	char *p=strdup(path);
+	if(getParent(head,p) != NULL)
+		return 0;
+	else
+		return -ENOENT;
 }
 
 static int fs_read(const char *path, char *buf, size_t size, off_t offset,struct fuse_file_info *fi){
+	fprintf(stdout, "in read with path: %s\n", path);
+	char *p=strdup(path);
+	item *node;
+	size_t length;
+	node=getParent(head, p);
+	if (node->isFile==0)
+	{
+		return -EISDIR;
+	}
+	if (node->data!=NULL)
+	{
+		length = node->details->st_size;
+		if (offset < length)
+		{
+			if (offset + size > length)
+				size = length - offset;
+			memcpy(buf, node->data + offset, size);
+			buf[size] = '\0';
+		}
+		else
+			size = 0;
+	}
+	else
+		size=0;
+
 	return size;
 }
 
 static int fs_write(const char *path, const char *buf, size_t size,off_t offset, struct fuse_file_info *fi){
+	fprintf(stdout, "in write with path: %s\n", path);
+	if (size > fsinfo->freeBytes)
+	{
+		return -ENOSPC;
+	}
+
+	char *p=strdup(path);
+	item *node;
+	size_t length;
+	node=getParent(head, p);
+	if (node->isFile==0)
+	{
+		return -EISDIR;
+	}
+	length = node->details->st_size;
+	if (size > 0)
+	{
+		if (length != 0)
+		{
+			if (offset > length)
+			{
+				offset = length;
+			}
+			char *copy=(char *)realloc(node->data, sizeof(char) * (offset + size));
+			if (copy==NULL)
+			{
+				return -ENOSPC;
+			}
+			else{
+				node->data=copy;
+				memcpy(node->data + offset, buf, size);
+				node->details->st_size=offset + size;
+				node->details->st_ctime=time(NULL);
+				node->details->st_mtime=time(NULL);
+				fsinfo->freeBytes = fsinfo->freeBytes - size -offset;
+			}
+		}
+		else
+		{
+			offset=0;
+			node->data=(char *)malloc(sizeof(char) * size);
+			memcpy(node->data + offset, buf, size);
+			node->details->st_size=offset + size;
+			node->details->st_ctime=time(NULL);
+			node->details->st_mtime=time(NULL);
+			fsinfo->freeBytes = fsinfo->freeBytes - size;
+		}
+	}
+	return size;
+}
+
+static int fs_utimens(const char * path, const struct timespec tv[2]){
+	fprintf(stdout, "in utimens with path: %s\n", path);
+	return 0;
+}
+
+static int fs_chmod(const char *path, mode_t mode){
+	fprintf(stdout, "in chmod with path: %s\n", path);
+	return 0;
+}
+static int fs_chown(const char *path, uid_t uid, gid_t gid){
+	fprintf(stdout, "in chown with path: %s\n", path);
 	return 0;
 }
 
 static int fs_create(const char *path , mode_t mode, struct fuse_file_info *fi){
+	if ((fsinfo->freeBytes- sizeof(item) - sizeof(stat)) < 0)
+	{//no space
+		return -ENOSPC;
+	}
+	printf("in create\n");
+	char temp1[1024], temp2[1024], *dirName, *Dir;
+	strcpy(temp1,path);
+	strcpy(temp2,path);
+	Dir=basename(temp1);
+	dirName=dirname(temp2);
+
+	item *parentNode;
+
+	item *newNode = (item *)malloc(sizeof(item));
+	newNode->details=(struct stat *)malloc(sizeof(struct stat));
+
+	newNode->sibling=NULL;
+	newNode->data=NULL;
+	newNode->subDir=NULL;
+	newNode->isFile=1;
+
+	newNode->details->st_mode = mode;
+	newNode->details->st_nlink = 1;
+	newNode->details->st_uid=getuid();
+	newNode->details->st_gid=getgid();
+
+	newNode->name=strndup(Dir,strlen(Dir));
+	newNode->location=strndup(temp1,strlen(temp1));
+
+	parentNode=getParent(head,dirName);
+	fprintf(stdout, "Parent in create: %s\n", parentNode->name);
+	if (parentNode==NULL)
+	{
+		printf("Parent Node does not exist\n");
+		exit(EXIT_FAILURE);
+	}
+	newNode->supDir=parentNode;
+	//parentNode->details->st_nlink+=1;
+
+	if (parentNode->subDir==NULL)
+	{fprintf(stdout, "first child\n");
+		parentNode->subDir=newNode;
+	}
+	else
+	{fprintf(stdout, "traversing node\n");
+		parentNode=parentNode->subDir;
+		while(parentNode->sibling!=NULL)
+			parentNode=parentNode->sibling;
+
+		parentNode->sibling=newNode;
+	}
+
+	fsinfo->freeBytes = fsinfo->totalSize - sizeof(item) - sizeof(stat);
+	if (fsinfo->freeBytes < 0)
+	{//no space
+		return -ENOSPC;
+	}
 	return 0;
 }
 
@@ -278,7 +514,7 @@ fprintf(stdout, "Root name: %s\n", rootNode->name);
 	rootNode->details->st_uid=0;
 	rootNode->details->st_gid=0;
 	rootNode->location = strdup("/");
-	rootNode->name = strndup(argv[1],strlen(argv[1]));
+	rootNode->name = strndup(argv[3],strlen(argv[3]));
 	fsinfo->freeBytes = fsinfo->totalSize - sizeof(item) - sizeof(stat);
 	if (fsinfo->freeBytes < 0)
 	{//no space
@@ -300,6 +536,9 @@ static struct fuse_operations fuseOps = {
     .opendir    =   fs_opendir,
     .unlink     =   fs_unlink,
     .write      =   fs_write,
+    .utimens 	= 	fs_utimens,
+    .chmod      = 	fs_chmod,
+	.chown 		= 	fs_chown,
 };
 
 int main(int argc, char *argv[]){
@@ -309,11 +548,11 @@ int main(int argc, char *argv[]){
 		//exit(EXIT_FAILURE);
 	}
 	fsinfo = (FSInfo *)malloc(sizeof(FSInfo));
-	fsinfo->totalSize=((long)atoi(argv[2])) * 1024 * 1024;
-	fsinfo->freeBytes=((long)atoi(argv[2])) * 1024 * 1024;
+	fsinfo->totalSize=((long)atoi(argv[4])) * 1024 * 1024;
+	fsinfo->freeBytes=((long)atoi(argv[4])) * 1024 * 1024;
 	fsinfo->NumberOfDir=0;
 	fsinfo->NumberOfFiles=0;
-	fsinfo->mountpoint=strndup(argv[1],strlen(argv[1]));
+	fsinfo->mountpoint=strndup(argv[3],strlen(argv[3]));
 	
 	initFuse(argv);
 #if DEBUG
