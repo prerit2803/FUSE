@@ -47,6 +47,7 @@ static int fs_create(const char *path , mode_t mode, struct fuse_file_info *fi);
 static int fs_utimens(const char * path, const struct timespec tv[2]);
 static int fs_chmod(const char *path, mode_t mode);
 static int fs_chown(const char *path, uid_t uid, gid_t gid);
+static int fs_truncate (const char * path , off_t offset);
 
 void Display()
 {
@@ -139,6 +140,10 @@ static int fs_getattr(const char *path, struct stat *stbuf){
 }
 
 static int fs_opendir(const char *path, struct fuse_file_info *fi){
+	return 0;
+}
+
+static int fs_truncate (const char * path , off_t offset){
 	return 0;
 }
 
@@ -343,7 +348,7 @@ static int fs_read(const char *path, char *buf, size_t size, off_t offset,struct
 	fprintf(stdout, "in read with path: %s\n", path);
 	char *p=strdup(path);
 	item *node;
-	size_t length;
+	int length;
 	node=getParent(head, p);
 	if (node->isFile==0)
 	{
@@ -351,12 +356,12 @@ static int fs_read(const char *path, char *buf, size_t size, off_t offset,struct
 	}
 	if (node->data!=NULL)
 	{
-		length = node->details->st_size;
+		length =strlen(node->data);
 		if (offset < length)
 		{
 			if (offset + size > length)
 				size = length - offset;
-			memcpy(buf, node->data + offset, size);
+			memcpy(buf, (node->data) + offset, size);
 			buf[size] = '\0';
 		}
 		else
@@ -377,17 +382,27 @@ static int fs_write(const char *path, const char *buf, size_t size,off_t offset,
 
 	char *p=strdup(path);
 	item *node;
-	size_t length;
+	int length;
 	node=getParent(head, p);
+	fprintf(stdout, "after getParent with name: %s\n", node->name);
 	if (node->isFile==0)
 	{
 		return -EISDIR;
 	}
-	length = node->details->st_size;
+	if (node->data == NULL)
+	{
+		fprintf(stdout, "data is null\n");
+		length=0;
+	}
+	else
+	{
+		length = strlen(node->data);
+	}
 	if (size > 0)
 	{
 		if (length != 0)
 		{
+			fprintf(stdout, "length calculated %d\n", length);
 			if (offset > length)
 			{
 				offset = length;
@@ -399,19 +414,19 @@ static int fs_write(const char *path, const char *buf, size_t size,off_t offset,
 			}
 			else{
 				node->data=copy;
-				memcpy(node->data + offset, buf, size);
-				node->details->st_size=offset + size;
+				memcpy((node->data) + offset, buf, size);
+				node->details->st_size= (offset + size);
 				node->details->st_ctime=time(NULL);
 				node->details->st_mtime=time(NULL);
 				fsinfo->freeBytes = fsinfo->freeBytes - size -offset;
 			}
 		}
 		else
-		{
+		{fprintf(stdout, "length is zero\n");
 			offset=0;
 			node->data=(char *)malloc(sizeof(char) * size);
-			memcpy(node->data + offset, buf, size);
-			node->details->st_size=offset + size;
+			memcpy((node->data) + offset, buf, size);
+			node->details->st_size=(offset + size);
 			node->details->st_ctime=time(NULL);
 			node->details->st_mtime=time(NULL);
 			fsinfo->freeBytes = fsinfo->freeBytes - size;
@@ -487,11 +502,7 @@ static int fs_create(const char *path , mode_t mode, struct fuse_file_info *fi){
 		parentNode->sibling=newNode;
 	}
 
-	fsinfo->freeBytes = fsinfo->totalSize - sizeof(item) - sizeof(stat);
-	if (fsinfo->freeBytes < 0)
-	{//no space
-		return -ENOSPC;
-	}
+	fsinfo->freeBytes = fsinfo->freeBytes - sizeof(item) - sizeof(stat);
 	return 0;
 }
 
@@ -514,7 +525,7 @@ fprintf(stdout, "Root name: %s\n", rootNode->name);
 	rootNode->details->st_uid=0;
 	rootNode->details->st_gid=0;
 	rootNode->location = strdup("/");
-	rootNode->name = strndup(argv[3],strlen(argv[3]));
+	rootNode->name = strndup(argv[1],strlen(argv[1]));
 	fsinfo->freeBytes = fsinfo->totalSize - sizeof(item) - sizeof(stat);
 	if (fsinfo->freeBytes < 0)
 	{//no space
@@ -539,6 +550,7 @@ static struct fuse_operations fuseOps = {
     .utimens 	= 	fs_utimens,
     .chmod      = 	fs_chmod,
 	.chown 		= 	fs_chown,
+	.truncate	= 	fs_truncate,
 };
 
 int main(int argc, char *argv[]){
@@ -548,11 +560,11 @@ int main(int argc, char *argv[]){
 		//exit(EXIT_FAILURE);
 	}
 	fsinfo = (FSInfo *)malloc(sizeof(FSInfo));
-	fsinfo->totalSize=((long)atoi(argv[4])) * 1024 * 1024;
-	fsinfo->freeBytes=((long)atoi(argv[4])) * 1024 * 1024;
+	fsinfo->totalSize=((long)atoi(argv[2])) * 1024 * 1024;
+	fsinfo->freeBytes=((long)atoi(argv[2])) * 1024 * 1024;
 	fsinfo->NumberOfDir=0;
 	fsinfo->NumberOfFiles=0;
-	fsinfo->mountpoint=strndup(argv[3],strlen(argv[3]));
+	fsinfo->mountpoint=strndup(argv[1],strlen(argv[1]));
 	
 	initFuse(argv);
 #if DEBUG
