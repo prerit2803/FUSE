@@ -48,6 +48,7 @@ static int fs_utimens(const char * path, const struct timespec tv[2]);
 static int fs_chmod(const char *path, mode_t mode);
 static int fs_chown(const char *path, uid_t uid, gid_t gid);
 static int fs_truncate (const char * path , off_t offset);
+static int fs_rename(const char *src, const char *dest);
 
 void Display()
 {
@@ -95,6 +96,64 @@ item* getParent(item *temp, char *path){
 	}
 }
 
+/*int createFile(char *path)
+{
+	if ((fsinfo->freeBytes- sizeof(item) - sizeof(stat)) < 0)
+	{//no space
+		return -ENOSPC;
+	}
+	printf("in create\n");
+	char temp1[1024], temp2[1024], *dirName, *Dir;
+	strcpy(temp1,path);
+	strcpy(temp2,path);
+	Dir=basename(temp1);
+	dirName=dirname(temp2);
+
+	item *parentNode;
+
+	item *newNode = (item *)malloc(sizeof(item));
+	newNode->details=(struct stat *)malloc(sizeof(struct stat));
+
+	newNode->sibling=NULL;
+	newNode->data=NULL;
+	newNode->subDir=NULL;
+	newNode->isFile=1;
+
+	newNode->details->st_mode = S_IFREG | 0666;
+	newNode->details->st_nlink = 1;
+	newNode->details->st_uid=getuid();
+	newNode->details->st_gid=getgid();
+
+	newNode->name=strndup(Dir,strlen(Dir));
+	newNode->location=strndup(temp1,strlen(temp1));
+
+	parentNode=getParent(head,dirName);
+	fprintf(stdout, "Parent in create: %s\n", parentNode->name);
+	if (parentNode==NULL)
+	{
+		printf("Parent Node does not exist\n");
+		exit(EXIT_FAILURE);
+	}
+	newNode->supDir=parentNode;
+	//parentNode->details->st_nlink+=1;
+
+	if (parentNode->subDir==NULL)
+	{fprintf(stdout, "first child\n");
+		parentNode->subDir=newNode;
+	}
+	else
+	{fprintf(stdout, "traversing node\n");
+		parentNode=parentNode->subDir;
+		while(parentNode->sibling!=NULL)
+			parentNode=parentNode->sibling;
+
+		parentNode->sibling=newNode;
+	}
+
+	fsinfo->freeBytes = fsinfo->freeBytes - sizeof(item) - sizeof(stat);
+	return 0;
+}*/
+
 static int fs_getattr(const char *path, struct stat *stbuf){
 	fprintf(stdout, "getattr path: %s\n", path);
 	char *p;
@@ -118,7 +177,7 @@ static int fs_getattr(const char *path, struct stat *stbuf){
 		{
 			if (node->isFile==1)
 			{fprintf(stdout, "is File\n");
-				stbuf->st_mode= S_IFREG | 0755;
+				stbuf->st_mode= S_IFREG | 0666;
 				stbuf->st_nlink=1;
 			}
 			else
@@ -506,6 +565,72 @@ static int fs_create(const char *path , mode_t mode, struct fuse_file_info *fi){
 	return 0;
 }
 
+void setDetails(item **dest, item *src)
+{
+	(*dest)->details->st_atime = src->details->st_atime;
+	(*dest)->details->st_mtime = src->details->st_mtime;
+	(*dest)->details->st_ctime = src->details->st_ctime;
+	
+	(*dest)->details->st_mode = src->details->st_mode;
+	(*dest)->details->st_nlink = src->details->st_nlink;
+	
+	(*dest)->details->st_uid = src->details->st_uid;
+	(*dest)->details->st_gid = src->details->st_gid;
+}
+
+static int fs_rename(const char *src, const char *dest)
+{
+	char *s=strdup(src);
+	char *d=strdup(dest);
+	item *from=getParent(head,s);
+	item *to=getParent(head,d);
+	if (from==NULL)
+	{
+		return -ENOENT;
+	}
+	if (to==NULL)//destination not present, we will create one then
+	{
+
+		if (from->isFile==1)
+		{
+			fs_create(d,from->details->st_mode, NULL);
+			to=getParent(head,d);
+			setDetails(&to, from);
+			fs_unlink(s);
+			return 0;
+		}
+		else if (from->isFile==0)
+		{
+			fs_mkdir(d, from->details->st_mode);
+			to=getParent(head,d);
+			setDetails(&to, from);
+			to->details->st_size=from->details->st_size;
+			if(from->details->st_size > 0) {
+				to->data = (char *)malloc(sizeof(char)* from->details->st_size);
+			if(to->data) {
+				strcpy(to->data, from->data);
+				fsinfo->freeBytes = fsinfo->freeBytes - from->details->st_size;
+			}
+			else
+				return -ENOSPC;
+}
+			fs_unlink(s);
+			fs_rmdir(s);
+			return 0;
+		}
+		else
+			return -ENOENT;
+	}
+	else//destination present
+	{
+		if (to->isFile==1)
+		{
+			setDetails(&to, from);
+		}
+	}
+	return 0;
+}
+
 static int initFuse(char *argv[]){
 	item *rootNode=(item *)malloc(sizeof(item));
 	rootNode->details=(struct stat *)malloc(sizeof(stat));
@@ -551,6 +676,7 @@ static struct fuse_operations fuseOps = {
     .chmod      = 	fs_chmod,
 	.chown 		= 	fs_chown,
 	.truncate	= 	fs_truncate,
+	.rename		= 	fs_rename,
 };
 
 int main(int argc, char *argv[]){
