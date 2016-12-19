@@ -42,10 +42,10 @@ struct item{
 ## Structure of the FileSystem
 ```
 struct fileSystemInfo{
-	long int totalSize;	\\Filesystem Total Size
-	long int freeBytes;	\\Filesystem Available Bytes
-	long int NumberOfFiles;	\\Number of Files in FS
-	long int NumberOfDir;	\\Number of DIR in FS
-	char *mountpoint;	\\MountPoint path
+	long int totalSize;		\\Filesystem Total Size
+	long int freeBytes;		\\Filesystem Available Bytes
+	long int NumberOfFiles;		\\Number of Files in FS
+	long int NumberOfDir;		\\Number of DIR in FS
+	char *mountpoint;		\\MountPoint path
 };
 ```
