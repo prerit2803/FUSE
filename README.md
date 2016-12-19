@@ -33,10 +33,10 @@ struct item{
 	struct item *sibling;	\\Node Sibling
 	struct item *subDir;	\\Node Child (if DIR)
 	struct item *supDir;	\\Node Parent(NULL, if root)
-	char *name;		\\Node name
-	char *location;		\\Node path
-	char *data;		\\Node content
-	int isFile;		\\Whether Node is FILE or DIR
+	char *name;			\\Node name
+	char *location;			\\Node path
+	char *data;			\\Node content
+	int isFile;			\\Whether Node is FILE or DIR
 };
 ```
 ## Structure of the FileSystem
@@ -44,8 +44,8 @@ struct item{
 struct fileSystemInfo{
 	long int totalSize;		\\Filesystem Total Size
 	long int freeBytes;		\\Filesystem Available Bytes
-	long int NumberOfFiles;		\\Number of Files in FS
-	long int NumberOfDir;		\\Number of DIR in FS
+	long int NumberOfFiles;	\\Number of Files in FS
+	long int NumberOfDir;	\\Number of DIR in FS
 	char *mountpoint;		\\MountPoint path
 };
 ```
