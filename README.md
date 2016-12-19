@@ -11,7 +11,7 @@ Created an in-memory filesystem. Instead of reading and writing disk blocks, the
 
 The RAMDISK filesystem will support the basic POSIX/Unix commands listed below. Externally, the RAMDISK appears as a standard Unix FS. Notably, it is hierarchtical (has directories) and must support standard accesses, such as read, write, and append. However, the filesystem is not persistent. The data and metadata are lost when the process terminates, which is also when the process frees the memory it has allocated.
 
-The internal design of the filesystem is using linked list.
+The internal design of the filesystem is using linked list (see below).
 
 RAMDISK should not write any data to disk.
 
@@ -24,4 +24,28 @@ Make
 Makefile is designed in such a way that it will create the sufficient files required to make the program work. Now, Run the program using:
 ```
 ramdisk /path/to/dir 512 
+```
+
+## Structure of a Node
+```
+struct item{
+	struct stat *details;
+	struct item *sibling;
+	struct item *subDir;
+	struct item *supDir;
+	char *name;
+	char *location;
+	char *data;
+	int isFile;
+};
+```
+## Structure of the FileSystem
+```
+struct fileSystemInfo{
+	long int totalSize;
+	long int freeBytes;
+	long int NumberOfFiles;
+	long int NumberOfDir;
+	char *mountpoint;
+};
 ```
