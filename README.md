@@ -29,23 +29,23 @@ ramdisk /path/to/dir 512
 ## Structure of a Node
 ```
 struct item{
-	struct stat *details;
-	struct item *sibling;
-	struct item *subDir;
-	struct item *supDir;
-	char *name;
-	char *location;
-	char *data;
-	int isFile;
+	struct stat *details;	\\Node stat Structure
+	struct item *sibling;	\\Node Sibling
+	struct item *subDir;	\\Node Child (if DIR)
+	struct item *supDir;	\\Node Parent(NULL, if root)
+	char *name;		\\Node name
+	char *location;		\\Node path
+	char *data;		\\Node content
+	int isFile;		\\Whether Node is FILE or DIR
 };
 ```
 ## Structure of the FileSystem
 ```
 struct fileSystemInfo{
-	long int totalSize;
-	long int freeBytes;
-	long int NumberOfFiles;
-	long int NumberOfDir;
-	char *mountpoint;
+	long int totalSize;	\\Filesystem Total Size
+	long int freeBytes;	\\Filesystem Available Bytes
+	long int NumberOfFiles;	\\Number of Files in FS
+	long int NumberOfDir;	\\Number of DIR in FS
+	char *mountpoint;	\\MountPoint path
 };
 ```
