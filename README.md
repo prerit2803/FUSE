@@ -33,10 +33,10 @@ struct item{
 	struct item *sibling;	\\Node Sibling
 	struct item *subDir;	\\Node Child (if DIR)
 	struct item *supDir;	\\Node Parent(NULL, if root)
-	char *name;			\\Node name
+	char *name;				\\Node name
 	char *location;			\\Node path
-	char *data;			\\Node content
-	int isFile;			\\Whether Node is FILE or DIR
+	char *data;				\\Node content
+	int isFile;				\\Whether Node is FILE or DIR
 };
 ```
 ## Structure of the FileSystem
